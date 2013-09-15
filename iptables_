@@ -1,0 +1,70 @@
+#!/usr/bin/env python
+
+"""
+=head1 NAME
+
+iptables_ - Traffic in chain by rule
+
+=head1 CONFIGURATION
+
+This is a wildcard plugin. To monitor a chain, link
+vlans_<chainname> to this file. For example,
+
+  ln -s /usr/share/munin/plugins/vlans_ \
+        /etc/munin/plugins/iptables_stats-out
+
+will monitor stats-out.
+
+Each rule in chain shall have comment in order to be graphed.
+Comment will be used as graph label. Ex.
+iptables -I stats-out -p tcp --dport 80 -m comment --comment 'http'
+
+=head1 AUTHOR
+
+2013 Maciej Debski
+
+=head1 LICENSE
+
+GPL
+
+=head1 MAGIC MARKERS
+"""
+
+import re
+import os
+import sys
+from subprocess import Popen, PIPE
+
+chain = os.path.basename(sys.argv[0])
+m = re.match('^iptables_([A-Za-z0-9-]+)$', chain)
+if not m:
+    raise ValueError("Incorrect plugin name - unknown chain")
+chain = m.group(1)
+
+config = len(sys.argv) > 1 and sys.argv[1] == "config"
+
+ipt = Popen(['iptables', '-L', chain, '-n', '-v', '-x', '--line-number'], stdout=PIPE)
+(out, _) = ipt.communicate()
+
+if config:
+    print """
+graph_title Traffic in chain %s
+graph_vlabel bits per ${graph_period}
+graph_category network
+graph_info Traffic in chain
+""" % chain
+
+for line in out.split('\n'):
+    m = re.match('^\s*(\d+)\s+(\d+)\s+(\d+).*/\*(.*)\*/\s*', line)
+    if not m: continue
+    (rulenum, pkt, byte) = (int(m.group(x)) for x in (1,2,3))
+    comment = m.group(4).strip()
+    bit = byte * 8
+
+    if config:
+        print "rule%d.label %s" % (rulenum, comment)
+        print "rule%d.type DERIVE" % rulenum
+        print "rule%d.draw AREASTACK" % rulenum
+        print "rule%d.min 0" % rulenum
+    else:
+        print "rule%d.value %d" % (rulenum, bit)

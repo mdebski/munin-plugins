@@ -1,0 +1,88 @@
+#!/bin/bash
+
+: <<=cut
+
+=head1 NAME
+
+vlans_ - Traffic on device divided to vlans
+
+=head1 CONFIGURATION
+
+This is a wildcard plugin. To monitor an interface, link
+vlans_<interface> to this file. For example,
+
+  ln -s /usr/share/munin/plugins/vlans_ \
+        /etc/munin/plugins/vlans_eth0
+
+will monitor eth0.
+
+=head1 AUTHOR
+
+2013 Maciej Debski
+
+=head1 LICENSE
+
+GPL
+
+=head1 MAGIC MARKERS
+
+=cut
+
+. $MUNIN_LIBDIR/plugins/plugin.sh
+
+INTERFACE=${0##*vlans_}
+
+get_vlans() {
+	VCONFIG_PATH="/proc/net/vlan/config"
+	if [[ ! -f $VCONFIG_PATH ]]; then
+		echo "Cannot read vlan status"
+		exit 1
+	fi
+	VLANS="$(cat $VCONFIG_PATH | grep $INTERFACE\$ | cut -d\| -f 1)"
+}
+
+get_vlans
+
+if [ x$1 == x"config" ]; then
+	cat <<EOF
+graph_title Vlans on interface $INTERFACE
+graph_vlabel bits in (-) / out (+) per ${graph_period}
+graph_category network
+graph_info Traffic by vlan
+EOF
+
+	for v in $VLANS $INTERFACE
+	do
+		echo ${v}_out.label "$v"
+		echo ${v}_out.graph no
+		echo ${v}_out.type COUNTER
+		echo ${v}_out.min 0
+        	echo "${v}_out.cdef ${v}_out,8,*"
+		echo ${v}_in.label "$v"
+		if [ $v == $INTERFACE ]; then
+			echo ${v}_in.draw LINE1
+		else
+			echo ${v}_in.draw AREASTACK
+		fi
+		echo ${v}_in.type COUNTER
+		echo ${v}_in.negative ${v}_out
+        	echo "${v}_in.cdef ${v}_in,8,*"
+		echo ${v}_in.min 0
+	done
+	exit 0
+fi
+
+
+for v in $VLANS $INTERFACE
+do
+awk -v interface="$v" \
+    'BEGIN { gsub(/\./, "\\.", interface) } \
+    $1 ~ "^" interface ":" {
+        split($0, a, /: */); $0 = a[2]; \
+        print interface "_in.value " $1 "\n" interface "_out.value " $9 \
+    }' \
+    /proc/net/dev
+done
+
+
+# vim: ts=4

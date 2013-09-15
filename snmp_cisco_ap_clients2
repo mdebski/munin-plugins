@@ -1,0 +1,62 @@
+#!/bin/bash
+
+: <<EOF
+
+=head1 NAME
+
+snmp_cisco_ap_clients2 - Graph number of wifi clients connected to Cisco AP.
+
+=head1 CONFIGURATION
+
+No configuration (yet).
+
+=head1 AUTHOR
+
+2012 Maciej Debski
+
+=head1 LICENSE
+
+GPL
+
+=head1 MAGIC MARKERS
+
+=cut
+
+EOF
+
+# config
+HOSTS="ap1 ap2"
+COMMUNITY="public"
+
+SNMPGET="snmpget -v2c -c $COMMUNITY"
+MIB="1.3.6.1.4.1.9.9.273.1.1.2.1.1.1"
+
+if [ x$1 == x"config" ]; then
+	cat <<EOF
+graph_title Wifi clients 2
+graph_vlabel Number of clients
+graph_height 500
+graph_width 900
+graph_category network
+graph_info Connected wifi clients
+EOF
+
+	for h in $HOSTS
+	do
+		echo $h.label "$h - $(host -t txt $h | sed 's/.*text //' | tr -d '"')"
+		echo $h.draw AREASTACK
+		echo $h.info Clients connected to $h
+	done
+	exit 0
+fi
+
+for h in $HOSTS
+do
+	value=$($SNMPGET $h $MIB 2>/dev/null | cut -d= -f2 | head -1 | sed 's/.*[^0-9]\([0-9][0-9]*\)$/\1/')
+	if [ "$value" == "" ]; then
+		value="-1"
+	fi
+	echo "${h}.value $value"
+done
+
+# vim: ts=4
