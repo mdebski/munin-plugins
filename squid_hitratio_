@@ -51,7 +51,7 @@ fi
 if [ x$1 == x'config' ]; then
  cat << EOF
 graph_title Squid hit ratio ($COUNTERS)
-graph_args --rigid --lower-limit 0 --upper-limit 100
+graph_args --rigid --lower-limit 0
 graph_vlabel percent
 graph_category squid
 
@@ -78,4 +78,8 @@ out="$($sc)"
 requests="$(echo "$out" | grep 'client_http.requests' | cut -d= -f2 | sed 's@/sec$@@')"
 hits="$(echo "$out" | grep 'client_http.hits' | cut -d= -f2 | sed 's@/sec$@@')"
 
-echo "ratio.value $(echo "scale=5; 100*$hits/$requests" | bc)"
+if [ $(echo "$requests > 0" | bc) == "1" ]; then
+ echo "ratio.value $(echo "scale=5; 100*$hits/$requests" | bc)"
+else
+ echo "ratio.value unknown"
+fi
