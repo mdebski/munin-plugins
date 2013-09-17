@@ -1,0 +1,81 @@
+#!/bin/bash
+
+: << =cut
+
+=head1 NAME
+
+squid_hitratio_ - Plugin to monitor squid hit ratio using 5min or 60min average counters.
+
+Link it either to squid_hitratio_5min or squid_hitratio_60min to select used counters.
+
+=head1 CONFIGURATION
+
+Configuration variables:
+
+ squidhost   - host (default: "localhost")
+ squidport   - port (default: "3128")
+ squiduser   - username (default: "")
+ squidpasswd - password (default: "")
+
+=head1 AUTHOR
+
+Maciej Debski <winemore@staszic.waw.pl>
+
+=head1 LICENSE
+
+This program is free software; you can redistribute it and/or
+modify it under the terms of the GNU General Public License
+as published by the Free Software Foundation; version 2 dated June,
+1991.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+=cut
+
+. $MUNIN_LIBDIR/plugins/plugin.sh
+
+COUNTERS=${0##*squid_hitratio_}
+
+if [[ x$COUNTERS != x'5min' && x$COUNTERS != x'60min' ]]; then
+ echo "Invalid plugin name - use squid_hitratio_5min or squid_hitratio_60min"
+ exit 1
+fi
+
+if [ x$1 == x'config' ]; then
+ cat << EOF
+graph_title Squid hit ratio ($COUNTERS)
+graph_args --rigid --lower-limit 0 --upper-limit 100
+graph_vlabel percent
+graph_category squid
+
+ratio.label Hit ratio
+ratio.draw LINE
+ratio.min 0
+ratio.max 100
+EOF
+ exit 0
+fi
+
+if [[ -z $squidhost ]]; then squidhost="localhost"; fi
+if [[ -z $squidport ]]; then squidport=3128; fi
+if [[ -z $squiduser ]]; then squiduser=""; fi
+if [[ -z $squidpasswd ]]; then squidpass=""; fi
+
+url="cache_object://$squidhost/$COUNTERS"
+sc="squidclient -h $squidhost -p $squidport"
+if [[ $squiduser ]]; then sc="$sc -U $squiduser"; fi
+if [[ $squidpass ]]; then sc="$sc -W $squidpasswd"; fi
+sc="$sc $url"
+out="$($sc)"
+
+requests="$(echo "$out" | grep 'client_http.requests' | cut -d= -f2 | sed 's@/sec$@@')"
+hits="$(echo "$out" | grep 'client_http.hits' | cut -d= -f2 | sed 's@/sec$@@')"
+
+echo "ratio.value $(echo "scale=5; 100*$hits/$requests" | bc)"
