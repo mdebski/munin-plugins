@@ -11,6 +11,8 @@ import parse_rrd
 import sys
 import time
 
+from munin import MultiGraphs, Graph, Item
+
 class Resource:
     def __init__(self, cur, max):
         self.cur = float(cur)
@@ -41,8 +43,7 @@ class checkXAPI:
         finally:
             self.x.logout()
 
-    def latest_host_data(self,**key):
-        host_uuid = self.rrd_updates.get_host_uuid()
+    def latest_host_data(self, **key):
         v = []
         for k in key:
             if k == "cpu":
@@ -55,11 +56,11 @@ class checkXAPI:
 
         for param in self.rrd_updates.get_host_param_list():
             if param in paramList:
-                max_time=0
-                data=""
+                max_time = 0
+                data = ""
                 for row in range(self.rrd_updates.get_nrows()):
                     epoch = self.rrd_updates.get_row_time(row)
-                    dv = str(self.rrd_updates.get_host_data(param,row))
+                    dv = str(self.rrd_updates.get_host_data(param, row))
                     if epoch > max_time:
                         max_time = epoch
                         data = dv
@@ -72,43 +73,32 @@ class checkXAPI:
 
     def get_cpu(self):
         cpu = self.latest_host_data(cpu=len(self.xapi.host_cpu.get_all()))
-        total=sum(map(float, cpu))
+        total = sum([float(c) for c in cpu])
         return Resource(total, len(cpu))
 
 check = checkXAPI()
 
+m = MultiGraphs()
+g = Graph('xen_cpu', title='Cpu Load', args='--base 1000 --rigid ' \
+          '--lower-limit 0 --upper-limit %f' % check.get_cpu().max,
+          category='xen', vlabel='Load', info='Total load of all cpus')
+g.append(Item('cpu', label='Load', min='0', max='%f' % check.get_cpu().max,
+              draw='AREA'))
+m.append(g)
+g = Graph('xen_mem', title='Memory', vlabel='Memory', category='xen',
+          info='Memory', args='--base 1024 --rigid --lower-limit 0 ' \
+          '--upper-limit %f' % check.get_memory().max)
+g.append(Item('mem', label='Used', min='0', draw='AREA',
+              max='%f' % check.get_memory().max))
+m.append(g)
+
 def main():
-    print "multigraph xen_mem"
-    print "mem.value %f" % check.get_memory().cur
-    print "multigraph xen_cpu"
-    print "cpu.value %f" % check.get_cpu().cur
+    m.set_value('mem', check.get_memory().cur)
+    m.set_value('cpu', check.get_cpu().cur)
+    m.print_value()
 
 def config():
-    print """
-multigraph xen_cpu
-graph_title Cpu Load
-graph_args --base 1000 --rigid --lower-limit 0 --upper-limit %f
-graph_vlabel Load
-graph_category xen
-graph_info Total load of all cpus
-
-cpu.label Load
-cpu.min 0
-cpu.max %f
-cpu.draw AREA""" % (check.get_cpu().max, check.get_cpu().max)
-
-    print """
-multigraph xen_mem
-graph_title Memory
-graph_args --base 1024 --rigid --lower-limit 0 --upper-limit %f
-graph_vlabel Memory
-graph_category xen
-graph_info Memory
-
-mem.label Used
-mem.min 0
-mem.max %f
-mem.draw AREA""" % (check.get_memory().max, check.get_memory().max)
+    m.print_config()
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "config":
