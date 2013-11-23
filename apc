@@ -1,0 +1,112 @@
+#!/usr/bin/env python
+"""Plugin for monitoring parameters of apc ups via snmp
+
+    Configuration:
+    [apc]
+    env.host hostname
+    env.community community_name
+"""
+
+import os
+import sys
+from munin import MultiGraphs, Graph, Item
+from pysnmp.entity.rfc3413.oneliner import cmdgen
+
+class SnmpItem(Item):
+    def __init__(self, name, **kwargs):
+        """Needs at least two additional arguments: oid and host"""
+        self.oid = kwargs.pop('oid')
+        self.host = kwargs.pop('host')
+        self.mod = kwargs.pop('mod', 1.0)
+        self.community = kwargs.pop('community', 'public')
+        super(SnmpItem, self).__init__(name, **kwargs)
+
+    def update_value(self):
+        """Perform snmpget"""
+        cmdGen = cmdgen.CommandGenerator()
+        ei, es, eii, var = cmdGen.getCmd(cmdgen.CommunityData(self.community),
+            cmdgen.UdpTransportTarget((self.host, 161)), self.oid)
+        if ei:
+            raise RuntimeError(ei)
+        if es:
+            raise RuntimeError('%s at %s' % (es.prettyPrint(),
+                                             var[int(eii)-1] if eii else '?'))
+        self.value = self.mod * int(var[0][1])
+
+
+oids = {
+ 'time_on_battery': '.1.3.6.1.4.1.318.1.1.1.2.1.2.0', # Timeticks
+ 'time_remaining': '.1.3.6.1.4.1.318.1.1.1.2.2.3.0', # Timeticks
+ 'battery_capacity': '.1.3.6.1.4.1.318.1.1.1.2.3.1.0', # 0.1 per cent
+ 'load': '.1.3.6.1.4.1.318.1.1.1.4.3.3.0', # 0.1 Per cent
+ 'battery_current': '.1.3.6.1.4.1.318.1.1.1.2.3.5.0', # 0.1 A
+ 'total_dc_current': '.1.3.6.1.4.1.318.1.1.1.2.3.6.0', # 0.1 A
+ 'output_current': '.1.3.6.1.4.1.318.1.1.1.4.3.4.0', # 0.1 A
+ 'input_voltage': '.1.3.6.1.4.1.318.1.1.1.3.3.1.0', # 0.1 V
+ 'input_frequency': '.1.3.6.1.4.1.318.1.1.1.3.3.4.0', # 0.1 Hz
+ 'output_voltage': '.1.3.6.1.4.1.318.1.1.1.4.3.1.0', # 0.1 V
+ 'output_frequency': '.1.3.6.1.4.1.318.1.1.1.4.3.2.0', # 0.1 Hz
+ 'battery_temperature': '.1.3.6.1.4.1.318.1.1.1.2.3.2.0', # 0.1 *C
+ 'uio1_temp': '.1.3.6.1.4.1.318.1.1.10.2.3.2.1.4.1', # *C
+}
+
+# Graphs:
+# time, percent, current, voltage+freq, temp
+
+host = os.environ['host']
+cm = os.environ['community']
+
+m = MultiGraphs()
+
+g = Graph(name='ups_time', title='Time', category='power',
+               vlabel='time [minutes]')
+g.append(SnmpItem(name='battery', label='Time on battery', draw='LINE2',
+         oid=oids['time_on_battery'], mod=(1.0/6000), host=host, community=cm))
+g.append(SnmpItem(name='remaining', label='Time remaining', draw='LINE2',
+         oid=oids['time_remaining'], mod=(1.0/6000), host=host, community=cm))
+m.append(g)
+
+g = Graph(name='ups_percentage', title='Percentage', category='power',
+               vlabel='%')
+g.append(SnmpItem(name='capacity', label='Battery capacity', draw='LINE2',
+         oid=oids['battery_capacity'], mod=0.1, host=host, community=cm))
+g.append(SnmpItem(name='out_load', label='Load', draw='LINE2',
+         oid=oids['load'], mod=0.1, host=host, community=cm))
+m.append(g)
+
+g = Graph(name='ups_current', title='Current', category='power',
+               vlabel='current [A]')
+g.append(SnmpItem(name='bat_current', label='Battery current', draw='LINE2',
+         oid=oids['battery_current'], mod=0.1, host=host, community=cm))
+g.append(SnmpItem(name='dc_current', label='DC current', draw='LINE2',
+         oid=oids['total_dc_current'], mod=0.1, host=host, community=cm))
+g.append(SnmpItem(name='out_current', label='Output current', draw='LINE2',
+         oid=oids['output_current'], mod=0.1, host=host, community=cm))
+m.append(g)
+
+g = Graph(name='ups_params', title='Voltage & Frequency', category='power',
+               vlabel='voltage [V] / frequency [Hz]')
+g.append(SnmpItem(name='input_voltage', label='Input voltage', draw='LINE2',
+         oid=oids['input_voltage'], mod=0.1, host=host, community=cm))
+g.append(SnmpItem(name='output_voltage', label='Output voltage', draw='LINE2',
+         oid=oids['output_voltage'], mod=0.1, host=host, community=cm))
+g.append(SnmpItem(name='input_freq', label='Input frequency', draw='LINE1',
+         oid=oids['input_frequency'], mod=0.1, host=host, community=cm))
+g.append(SnmpItem(name='output_freq', label='Output frequency', draw='LINE1',
+         oid=oids['output_frequency'], mod=0.1, host=host, community=cm))
+m.append(g)
+
+g = Graph(name='ups_temperature', title='Temperature', category='power',
+               vlabel='tempperature [*C]')
+g.append(SnmpItem(name='bat_temp', label='Battery', draw='LINE2',
+         oid=oids['battery_temperature'], mod=0.1, host=host, community=cm))
+g.append(SnmpItem(name='uio1_temp', label='UIO1 (Outside)', draw='LINE2',
+         oid=oids['uio1_temp'], host=host, community=cm))
+m.append(g)
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "config":
+        m.print_config()
+    else:
+        m.update_values()
+        m.print_value()
